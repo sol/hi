@@ -15,13 +15,14 @@ import           Hi.Utils
 import           Control.Applicative
 import           Data.Char             (isUpper, toLower)
 import           Data.List             (intercalate)
-import           Data.Maybe            (fromMaybe, mapMaybe)
+import           Data.Maybe            (fromMaybe, listToMaybe, mapMaybe, catMaybes)
 import           Data.Time.Calendar    (toGregorian)
 import           Data.Time.Clock       (getCurrentTime, utctDay)
 import           System.Console.GetOpt
 import           System.Directory      (doesFileExist, getHomeDirectory)
 import qualified System.Environment
 import           System.FilePath       (joinPath)
+import           System.Process        (readProcessWithExitCode)
 
 -- | Available options.
 options :: [OptDescr Option]
@@ -53,6 +54,7 @@ toOption (key, value) = maybe err ok $ key `lookupOption` options
 getOptions :: IO [Option]
 getOptions = handleError
                <$> validateOptions
+               =<< addAuthorAndEmailFromLocalGitConfig
                =<< addDefaultRepo
                =<< addPackageNameIfMissing
                =<< addOptionsFromConfigFile
@@ -97,6 +99,16 @@ getOptions = handleError
     handleError result = case result of
         Left  errors -> error $ (intercalate "\n" errors) ++ "\n (Run with no arguments to see usage)"
         Right x      -> return x
+
+    addAuthorAndEmailFromLocalGitConfig :: [Option] -> IO [Option]
+    addAuthorAndEmailFromLocalGitConfig opts = do
+        name  <- cmd' "git" ["config", "--local", "user.name"]
+        email <- cmd' "git" ["config", "--local", "user.email"]
+        return $ opts ++ catMaybes [Arg "author" <$> name, Arg "email" <$> email]
+      where
+        cmd' :: FilePath -> [String] -> IO (Maybe String)
+        cmd' cmd args = listToMaybe . lines . snd' <$> readProcessWithExitCode cmd args []
+        snd' (_,y,_) = y
 
 -- | Return file contents in Maybe String or Nothing.
 --

@@ -4,6 +4,7 @@ import           Hi.Version          (version)
 import           Hi.Directory        (inDirectory)
 
 import           Control.Applicative
+import           Control.Monad
 import           Control.Exception   (bracket_)
 import           Data.List           (intercalate)
 import           Data.Time.Calendar  (toGregorian)
@@ -25,6 +26,18 @@ spec = do
 
     describe "with configuration file" $
       around setupWithConfigurationFile features
+
+    describe "with command line options" $ do
+      let cmd = setupWithLocalGitConfig [ " -p ", packageName , " -m ", moduleName ]
+
+      around cmd $ do
+        it "should use locally configured git user name" $  do
+          compiled <- readFile "testapp/testapp.cabal"
+          compiled `shouldContain` "John Doe"
+
+        it "should use locally configured git email" $  do
+          compiled <- readFile "testapp/testapp.cabal"
+          compiled `shouldContain` "johndoe@example.com"
 
     describe "-v" $ do
       it "should show version number" $ do
@@ -173,6 +186,20 @@ setupWithCommandLineOptions opts action = do
                              ] ++ concat opts
         action
 
+setupWithLocalGitConfig :: [String] -> IO () -> IO ()
+setupWithLocalGitConfig opts action = do
+    pwd <- getCurrentDirectory
+
+    inTestDirectory $ withLocalGitConfig $ do
+        writeFile fileName ""
+        pwd' <- getCurrentDirectory
+        print $ " --configuration-file " ++ pwd' ++ "/" ++ fileName
+        _ <- system $ concat [ pwd ++ "/dist/build/hi/hi"
+                             , " -r file://" ++ pwd ++ "/template"
+                             , " --configuration-file ", pwd' ++ "/" ++ fileName
+                             ] ++ concat opts
+        action
+
 inTestDirectory :: IO () -> IO ()
 inTestDirectory action = do
     pwd <- getCurrentDirectory
@@ -180,6 +207,15 @@ inTestDirectory action = do
         flush = removeDirectoryRecursive testDirectory
         back  = setCurrentDirectory pwd
     bracket_ go (back >> flush) action
+
+withLocalGitConfig :: IO () -> IO ()
+withLocalGitConfig action = do
+    -- FIXME This changes .git/config.
+    void $ system "git config --local --add user.name \"John Doe\""
+    void $ system "git config --local --add user.email johndoe@example.com"
+    action
+    void $ system "git config --local --unset user.name"
+    void $ system "git config --local --unset user.email"
 
 testDirectory :: String
 testDirectory = "test_project"
